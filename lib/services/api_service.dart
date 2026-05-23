@@ -54,5 +54,33 @@ class ApiService {
       return false;
     }
   }
+
+  /// Fetches the alert history from the MongoDB server.
+  static Future<List<dynamic>?> fetchAlertHistory() async {
+    try {
+      final response = await http.get(Uri.parse('http://13.233.76.8:5555/api/alerts'));
+      if (response.statusCode == 200) {
+        return json.decode(response.body) as List<dynamic>;
+      }
+      return null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /// Records a new alert to the MongoDB server.
+  static Future<bool> recordAlert(Map<String, dynamic> alertData) async {
+    try {
+      final response = await http.post(
+        Uri.parse('http://13.233.76.8:5555/api/alerts'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode(alertData),
+      );
+      return response.statusCode == 201;
+    } catch (e) {
+      return false;
+    }
+  }
 }
+
 

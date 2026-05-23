@@ -100,20 +100,25 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
   }
 
   void _checkAlerts() {
-    bool isCmdExceeded = liveKva > cmdLimit;
-
-    if (isCmdExceeded) {
-      if (!_alertShown && !_isMuted) {
-        _alertShown = true;
-        AlertService.playAlert();
+      if (isCmdExceeded) {
+        if (!_alertShown && !_isMuted) {
+          _alertShown = true;
+          AlertService.playAlert();
+          // Record the alert in MongoDB
+          ApiService.recordAlert({
+            'message': 'CMD Limit Exceeded',
+            'type': 'CMD',
+            'value': liveKva,
+            'limit': cmdLimit,
+          });
+        }
+      } else {
+        if (_alertShown || _isMuted) {
+          _alertShown = false;
+          _isMuted = false;
+          AlertService.stopAlert();
+        }
       }
-    } else {
-      if (_alertShown || _isMuted) {
-        _alertShown = false;
-        _isMuted = false;
-        AlertService.stopAlert();
-      }
-    }
   }
 
   Widget _buildInlineBanner(String text) {
@@ -284,7 +289,12 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
             ),
           IconButton(
             icon: const Icon(Icons.notifications_none, color: Colors.blue),
-            onPressed: () {},
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const AlertHistoryScreen()),
+              );
+            },
           ),
         ],
       ),
