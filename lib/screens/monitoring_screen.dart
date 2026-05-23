@@ -70,19 +70,24 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
 
     try {
       final data = await ApiService.fetchSensorData();
-      if (data != null && mounted) {
+      final settings = await ApiService.fetchSettings();
+
+      if (mounted) {
         setState(() {
-          _apiData = data;
-          _calculateAggregates();
+          if (data != null) {
+            _apiData = data;
+            _calculateAggregates();
+          }
+          if (settings != null) {
+            cmdLimit = (settings['cmdLimit'] ?? cmdLimit).toDouble();
+            cmdMaxGauge = (settings['cmdMaxGauge'] ?? cmdMaxGauge).toDouble();
+            powerLimit = (settings['powerLimit'] ?? powerLimit).toDouble();
+            powerMaxGauge = (settings['powerMaxGauge'] ?? powerMaxGauge).toDouble();
+          }
           _isLoading = false;
           _isRefreshing = false;
         });
-        _checkAlerts();
-      } else if (mounted) {
-        setState(() {
-          _isLoading = false;
-          _isRefreshing = false;
-        });
+        if (data != null) _checkAlerts();
       }
     } catch (e) {
       if (mounted) {
@@ -190,9 +195,31 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
     );
 
     if (result != null && result is Map<String, double>) {
+      double newLimit = result['limit']!;
+      double newMaxGauge = result['maxGauge']!;
       setState(() {
-        onSave(result['limit']!, result['maxGauge']!);
+        onSave(newLimit, newMaxGauge);
       });
+
+      // Prepare settings payload
+      Map<String, dynamic> settingsPayload = {};
+      if (title.startsWith('CMD')) {
+        settingsPayload['cmdLimit'] = newLimit;
+        settingsPayload['cmdMaxGauge'] = newMaxGauge;
+      } else if (title.startsWith('POWER')) {
+        settingsPayload['powerLimit'] = newLimit;
+        settingsPayload['powerMaxGauge'] = newMaxGauge;
+      }
+
+      // Update on MongoDB backend
+      if (settingsPayload.isNotEmpty) {
+        bool success = await ApiService.updateSettings(settingsPayload);
+        if (mounted && !success) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Failed to sync settings with server.')),
+          );
+        }
+      }
     }
   }
 
