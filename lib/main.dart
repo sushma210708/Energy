@@ -7,8 +7,10 @@ import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
 import 'services/api_service.dart';
 import 'services/alert_service.dart';
+import 'services/foreground_service.dart';
 import 'screens/monitoring_screen.dart';
 import 'dart:typed_data';
+import 'package:flutter_background_service/flutter_background_service.dart';
 
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
 
@@ -19,13 +21,23 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   if (message.data['action'] == 'stop_alert') {
     await flutterLocalNotificationsPlugin.cancelAll();
     await AlertService.stopAlert();
+    await ForegroundService.initializeService();
+    FlutterBackgroundService().invoke('stop_siren');
     return;
   }
   
   if (message.data['action'] != 'trigger_alert') {
     return; // Only handle our specific alerts
   }
-  
+  await ForegroundService.initializeService();
+  final service = FlutterBackgroundService();
+  var isRunning = await service.isRunning();
+  if (!isRunning) {
+    await service.startService();
+    await Future.delayed(const Duration(seconds: 1));
+  }
+  service.invoke('start_siren');
+
   // Initialize local notifications (required for background isolates)
   const AndroidInitializationSettings initializationSettingsAndroid = AndroidInitializationSettings('@mipmap/ic_launcher');
   const InitializationSettings initializationSettings = InitializationSettings(android: initializationSettingsAndroid);
@@ -33,7 +45,7 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 
   // Show a notification with custom beep sound and FLAG_INSISTENT
   final AndroidNotificationDetails androidPlatformChannelSpecifics = AndroidNotificationDetails(
-    'ricemill_alerts', // channel id
+    'ricemill_alerts_v2', // channel id
     'Ricemill Alerts', // channel name
     importance: Importance.max,
     priority: Priority.high,
@@ -43,8 +55,8 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   final NotificationDetails platformChannelSpecifics = NotificationDetails(android: androidPlatformChannelSpecifics);
   await flutterLocalNotificationsPlugin.show(
     id: message.messageId?.hashCode ?? 0,
-    title: message.data['title'] ?? 'Alert',
-    body: message.data['body'] ?? 'Limit Exceeded',
+  title: message.notification?.title ?? 'Alert',
+body: message.notification?.body ?? 'Limit Exceeded',
     notificationDetails: platformChannelSpecifics,
   );
 }
@@ -70,7 +82,7 @@ await flutterLocalNotificationsPlugin.initialize(
 
 const AndroidNotificationChannel channel =
     AndroidNotificationChannel(
-      'ricemill_alerts',
+      'ricemill_alerts_v2',
       'Ricemill Alerts',
       description: 'Critical alert notifications',
       importance: Importance.max,
@@ -78,10 +90,13 @@ const AndroidNotificationChannel channel =
       sound: RawResourceAndroidNotificationSound('beep'),
     );
 
-await flutterLocalNotificationsPlugin
+  await flutterLocalNotificationsPlugin
     .resolvePlatformSpecificImplementation<
         AndroidFlutterLocalNotificationsPlugin>()
     ?.createNotificationChannel(channel);
+
+  await ForegroundService.initializeService();
+  
   // Setup FCM
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
   
@@ -89,10 +104,12 @@ await flutterLocalNotificationsPlugin
     if (message.data['action'] == 'stop_alert') {
       flutterLocalNotificationsPlugin.cancelAll();
       AlertService.stopAlert();
+      FlutterBackgroundService().invoke('stop_siren');
     } else if (message.data['action'] == 'trigger_alert') {
+      FlutterBackgroundService().invoke('start_siren');
       // In foreground, we also want the notification to pop up so the user can see it if they are on another screen
       final AndroidNotificationDetails androidPlatformChannelSpecifics = AndroidNotificationDetails(
-        'ricemill_alerts', // channel id
+        'ricemill_alerts_v2', // channel id
         'Ricemill Alerts', // channel name
         importance: Importance.max,
         priority: Priority.high,
@@ -102,8 +119,8 @@ await flutterLocalNotificationsPlugin
       final NotificationDetails platformChannelSpecifics = NotificationDetails(android: androidPlatformChannelSpecifics);
       await flutterLocalNotificationsPlugin.show(
         id: message.messageId?.hashCode ?? 0,
-        title: message.data['title'] ?? 'Alert',
-        body: message.data['body'] ?? 'Limit Exceeded',
+        title: message.notification?.title ?? 'Alert',
+body: message.notification?.body ?? 'Limit Exceeded',
         notificationDetails: platformChannelSpecifics,
       );
     }

@@ -2,8 +2,9 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 class ApiService {
-  static const String _sensorDataUrl = 'http://13.233.76.8:5555/api/sensordata';
-  static const String _settingsUrl = 'http://13.233.76.8:5555/api/settings';
+  static const String _baseUrl = 'http://192.168.1.11:5555/api';
+  static const String _sensorDataUrl = '$_baseUrl/sensordata';
+  static const String _settingsUrl = '$_baseUrl/settings';
 
   /// Fetches the latest sensor data from the API.
   /// Returns a Map of the data, or null if the request fails.
@@ -71,7 +72,7 @@ class ApiService {
   /// Fetches the alert history for a given user
   static Future<List<dynamic>?> fetchAlertHistory(String userId) async {
     try {
-      final response = await http.get(Uri.parse('http://13.233.76.8:5555/api/alerts/$userId'));
+      final response = await http.get(Uri.parse('$_baseUrl/alerts/$userId'));
       if (response.statusCode == 200) {
         return json.decode(response.body) as List<dynamic>;
       }
@@ -84,7 +85,7 @@ class ApiService {
   /// Clears the alert history for a given user
   static Future<bool> clearAlertHistory(String userId) async {
     try {
-      final response = await http.delete(Uri.parse('http://13.233.76.8:5555/api/alerts/$userId'));
+      final response = await http.delete(Uri.parse('$_baseUrl/alerts/$userId'));
       return response.statusCode == 200;
     } catch (e) {
       return false;
@@ -94,7 +95,7 @@ class ApiService {
   /// Stops ongoing background and foreground alerts globally for this user
   static Future<bool> stopAlert(String userId) async {
     try {
-      final response = await http.post(Uri.parse('http://13.233.76.8:5555/api/alerts/$userId/stop'));
+      final response = await http.post(Uri.parse('$_baseUrl/alerts/$userId/stop'));
       return response.statusCode == 200;
     } catch (e) {
       return false;

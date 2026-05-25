@@ -8,6 +8,7 @@ import '../services/alert_service.dart';
 import '../services/sync_service.dart';
 import 'alert_history_screen.dart';
 import '../main.dart'; // To access flutterLocalNotificationsPlugin
+import 'package:flutter_background_service/flutter_background_service.dart';
 
 class MonitoringScreen extends StatefulWidget {
   const MonitoringScreen({super.key});
@@ -76,6 +77,7 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
         _alertShown = false;
         AlertService.stopAlert();
         flutterLocalNotificationsPlugin.cancelAll();
+        FlutterBackgroundService().invoke('stop_siren');
       });
     }
   }
@@ -182,6 +184,7 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                   _alertShown = false;
                   AlertService.stopAlert();
                   flutterLocalNotificationsPlugin.cancelAll();
+                  FlutterBackgroundService().invoke('stop_siren');
                 });
                 await ApiService.stopAlert('global_user');
               },
