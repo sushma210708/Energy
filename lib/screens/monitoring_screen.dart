@@ -5,6 +5,9 @@ import 'settings_screen.dart';
 import 'pcc_details_screen.dart';
 import '../services/api_service.dart';
 import '../services/alert_service.dart';
+import '../services/sync_service.dart';
+import 'alert_history_screen.dart';
+import '../main.dart'; // To access flutterLocalNotificationsPlugin
 
 class MonitoringScreen extends StatefulWidget {
   const MonitoringScreen({super.key});
@@ -41,14 +44,51 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
   Map<String, dynamic>? _apiData;
   bool _alertShown = false;
   bool _isMuted = false;
+  
+  final SyncService _syncService = SyncService();
+  final String _userId = 'global_user';
 
   @override
   void initState() {
     super.initState();
+    _fetchInitialSettings();
+    _syncService.onSettingsUpdated = _handleSettingsUpdated;
+    _syncService.onAlertStopped = _handleAlertStopped;
+    _syncService.init();
+
     _fetchData();
     _timer = Timer.periodic(const Duration(seconds: 5), (timer) {
       _fetchData(isBackground: true);
     });
+  }
+
+  Future<void> _fetchInitialSettings() async {
+    final settings = await ApiService.fetchSettings(_userId);
+    if (settings != null) {
+      _handleSettingsUpdated(settings);
+    }
+  }
+
+  void _handleAlertStopped() {
+    if (mounted) {
+      setState(() {
+        _isMuted = true;
+        _alertShown = false;
+        AlertService.stopAlert();
+        flutterLocalNotificationsPlugin.cancelAll();
+      });
+    }
+  }
+
+  void _handleSettingsUpdated(Map<String, dynamic> settings) {
+    if (mounted) {
+      setState(() {
+        if (settings.containsKey('cmdLimit')) cmdLimit = (settings['cmdLimit'] as num).toDouble();
+        if (settings.containsKey('cmdMaxGauge')) cmdMaxGauge = (settings['cmdMaxGauge'] as num).toDouble();
+        if (settings.containsKey('powerLimit')) powerLimit = (settings['powerLimit'] as num).toDouble();
+        if (settings.containsKey('powerMaxGauge')) powerMaxGauge = (settings['powerMaxGauge'] as num).toDouble();
+      });
+    }
   }
 
   @override
@@ -70,24 +110,19 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
 
     try {
       final data = await ApiService.fetchSensorData();
-      final settings = await ApiService.fetchSettings();
-
-      if (mounted) {
+      if (data != null && mounted) {
         setState(() {
-          if (data != null) {
-            _apiData = data;
-            _calculateAggregates();
-          }
-          if (settings != null) {
-            cmdLimit = (settings['cmdLimit'] ?? cmdLimit).toDouble();
-            cmdMaxGauge = (settings['cmdMaxGauge'] ?? cmdMaxGauge).toDouble();
-            powerLimit = (settings['powerLimit'] ?? powerLimit).toDouble();
-            powerMaxGauge = (settings['powerMaxGauge'] ?? powerMaxGauge).toDouble();
-          }
+          _apiData = data;
+          _calculateAggregates();
           _isLoading = false;
           _isRefreshing = false;
         });
-        if (data != null) _checkAlerts();
+        _checkAlerts();
+      } else if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _isRefreshing = false;
+        });
       }
     } catch (e) {
       if (mounted) {
@@ -100,25 +135,22 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
   }
 
   void _checkAlerts() {
-      if (isCmdExceeded) {
-        if (!_alertShown && !_isMuted) {
-          _alertShown = true;
-          AlertService.playAlert();
-          // Record the alert in MongoDB
-          ApiService.recordAlert({
-            'message': 'CMD Limit Exceeded',
-            'type': 'CMD',
-            'value': liveKva,
-            'limit': cmdLimit,
-          });
-        }
-      } else {
-        if (_alertShown || _isMuted) {
-          _alertShown = false;
-          _isMuted = false;
-          AlertService.stopAlert();
-        }
+    bool isCmdExceeded = liveKva > cmdLimit;
+
+    if (isCmdExceeded) {
+      if (!_alertShown && !_isMuted) {
+        _alertShown = true;
+        AlertService.playAlert();
       }
+    } else {
+      if (_isMuted) {
+        _isMuted = false; // Reset muted state when back to normal
+      }
+      if (_alertShown) {
+        _alertShown = false;
+        AlertService.stopAlert();
+      }
+    }
   }
 
   Widget _buildInlineBanner(String text) {
@@ -144,12 +176,15 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
             ),
           ),
           ElevatedButton(
-            onPressed: _isMuted ? null : () {
-              setState(() {
-                _isMuted = true;
-                AlertService.stopAlert();
-              });
-            },
+            onPressed: () async {
+                setState(() {
+                  _isMuted = true;
+                  _alertShown = false;
+                  AlertService.stopAlert();
+                  flutterLocalNotificationsPlugin.cancelAll();
+                });
+                await ApiService.stopAlert('global_user');
+              },
             style: ElevatedButton.styleFrom(
               backgroundColor: _isMuted ? Colors.grey : const Color(0xFFEF5350), // Grey when muted, otherwise Red
               foregroundColor: Colors.white,
@@ -200,31 +235,16 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
     );
 
     if (result != null && result is Map<String, double>) {
-      double newLimit = result['limit']!;
-      double newMaxGauge = result['maxGauge']!;
       setState(() {
-        onSave(newLimit, newMaxGauge);
+        onSave(result['limit']!, result['maxGauge']!);
       });
-
-      // Prepare settings payload
-      Map<String, dynamic> settingsPayload = {};
-      if (title.startsWith('CMD')) {
-        settingsPayload['cmdLimit'] = newLimit;
-        settingsPayload['cmdMaxGauge'] = newMaxGauge;
-      } else if (title.startsWith('POWER')) {
-        settingsPayload['powerLimit'] = newLimit;
-        settingsPayload['powerMaxGauge'] = newMaxGauge;
-      }
-
-      // Update on MongoDB backend
-      if (settingsPayload.isNotEmpty) {
-        bool success = await ApiService.updateSettings(settingsPayload);
-        if (mounted && !success) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Failed to sync settings with server.')),
-          );
-        }
-      }
+      // Broadcast settings update to other devices
+      await ApiService.updateSettings(_userId, {
+        'cmdLimit': cmdLimit,
+        'cmdMaxGauge': cmdMaxGauge,
+        'powerLimit': powerLimit,
+        'powerMaxGauge': powerMaxGauge,
+      });
     }
   }
 
@@ -292,7 +312,9 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
             onPressed: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(builder: (context) => const AlertHistoryScreen()),
+                MaterialPageRoute(
+                  builder: (context) => const AlertHistoryScreen(userId: 'global_user'),
+                ),
               );
             },
           ),

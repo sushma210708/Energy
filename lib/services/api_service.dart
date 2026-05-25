@@ -3,7 +3,6 @@ import 'package:http/http.dart' as http;
 
 class ApiService {
   static const String _sensorDataUrl = 'http://13.233.76.8:5555/api/sensordata';
-
   static const String _settingsUrl = 'http://13.233.76.8:5555/api/settings';
 
   /// Fetches the latest sensor data from the API.
@@ -28,10 +27,10 @@ class ApiService {
     }
   }
 
-  /// Fetches the alert settings from the MongoDB server.
-  static Future<Map<String, dynamic>?> fetchSettings() async {
+  /// Fetches settings for a given user from the server
+  static Future<Map<String, dynamic>?> fetchSettings(String userId) async {
     try {
-      final response = await http.get(Uri.parse(_settingsUrl));
+      final response = await http.get(Uri.parse('$_settingsUrl/$userId'));
       if (response.statusCode == 200) {
         return json.decode(response.body) as Map<String, dynamic>;
       }
@@ -41,11 +40,11 @@ class ApiService {
     }
   }
 
-  /// Updates the alert settings on the MongoDB server.
-  static Future<bool> updateSettings(Map<String, dynamic> settings) async {
+  /// Updates settings for a given user
+  static Future<bool> updateSettings(String userId, Map<String, dynamic> settings) async {
     try {
       final response = await http.post(
-        Uri.parse(_settingsUrl),
+        Uri.parse('$_settingsUrl/$userId'),
         headers: {'Content-Type': 'application/json'},
         body: json.encode(settings),
       );
@@ -55,10 +54,24 @@ class ApiService {
     }
   }
 
-  /// Fetches the alert history from the MongoDB server.
-  static Future<List<dynamic>?> fetchAlertHistory() async {
+  /// Registers an FCM token for push notifications
+  static Future<bool> registerFcmToken(String userId, String token) async {
     try {
-      final response = await http.get(Uri.parse('http://13.233.76.8:5555/api/alerts'));
+      final response = await http.post(
+        Uri.parse('$_settingsUrl/$userId/token'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({'token': token}),
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// Fetches the alert history for a given user
+  static Future<List<dynamic>?> fetchAlertHistory(String userId) async {
+    try {
+      final response = await http.get(Uri.parse('http://13.233.76.8:5555/api/alerts/$userId'));
       if (response.statusCode == 200) {
         return json.decode(response.body) as List<dynamic>;
       }
@@ -68,19 +81,23 @@ class ApiService {
     }
   }
 
-  /// Records a new alert to the MongoDB server.
-  static Future<bool> recordAlert(Map<String, dynamic> alertData) async {
+  /// Clears the alert history for a given user
+  static Future<bool> clearAlertHistory(String userId) async {
     try {
-      final response = await http.post(
-        Uri.parse('http://13.233.76.8:5555/api/alerts'),
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode(alertData),
-      );
-      return response.statusCode == 201;
+      final response = await http.delete(Uri.parse('http://13.233.76.8:5555/api/alerts/$userId'));
+      return response.statusCode == 200;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// Stops ongoing background and foreground alerts globally for this user
+  static Future<bool> stopAlert(String userId) async {
+    try {
+      final response = await http.post(Uri.parse('http://13.233.76.8:5555/api/alerts/$userId/stop'));
+      return response.statusCode == 200;
     } catch (e) {
       return false;
     }
   }
 }
-
-

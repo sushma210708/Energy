@@ -1,17 +1,20 @@
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:intl/intl.dart';
 
 class AlertHistoryScreen extends StatefulWidget {
-  const AlertHistoryScreen({super.key});
+  final String userId;
+
+  const AlertHistoryScreen({Key? key, required this.userId}) : super(key: key);
 
   @override
-  State<AlertHistoryScreen> createState() => _AlertHistoryScreenState();
+  _AlertHistoryScreenState createState() => _AlertHistoryScreenState();
 }
 
 class _AlertHistoryScreenState extends State<AlertHistoryScreen> {
   List<dynamic> _alerts = [];
   bool _isLoading = true;
-  String _error = '';
 
   @override
   void initState() {
@@ -22,117 +25,118 @@ class _AlertHistoryScreenState extends State<AlertHistoryScreen> {
   Future<void> _fetchAlerts() async {
     setState(() {
       _isLoading = true;
-      _error = '';
     });
-    try {
-      final alerts = await ApiService.fetchAlertHistory();
-      if (mounted) {
-        setState(() {
-          _alerts = alerts ?? [];
-          _isLoading = false;
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _error = 'Failed to load alert history';
-          _isLoading = false;
-        });
-      }
+    final alerts = await ApiService.fetchAlertHistory(widget.userId);
+    if (mounted) {
+      setState(() {
+        _alerts = alerts ?? [];
+        _isLoading = false;
+      });
     }
   }
 
-  String _formatDateTime(String isoString) {
+  Future<void> _clearAlerts() async {
+    final success = await ApiService.clearAlertHistory(widget.userId);
+    if (success && mounted) {
+      setState(() {
+        _alerts.clear();
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Alert history cleared')),
+      );
+    }
+  }
+
+  String _formatTimestamp(String timestamp) {
     try {
-      final DateTime dt = DateTime.parse(isoString).toLocal();
-      return '${dt.day}/${dt.month}/${dt.year} ${dt.hour}:${dt.minute.toString().padLeft(2, '0')}';
+      final dateTime = DateTime.parse(timestamp).toLocal();
+      return DateFormat('MMM d, yyyy h:mm a').format(dateTime);
     } catch (e) {
-      return isoString;
+      return 'Unknown date';
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF9FBFB),
       appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.black),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: const Text(
-          'Alert History',
-          style: TextStyle(
-            color: Colors.black,
-            fontWeight: FontWeight.bold,
-            fontSize: 22,
-          ),
-        ),
-        centerTitle: true,
+        title: const Text('Alert History'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh, color: Colors.blue),
-            onPressed: _fetchAlerts,
-          ),
+          if (_alerts.isNotEmpty)
+            IconButton(
+              icon: const Icon(Icons.delete_outline, color: Colors.red),
+              onPressed: () {
+                showDialog(
+                  context: context,
+                  builder: (context) => AlertDialog(
+                    title: const Text('Clear History'),
+                    content: const Text('Are you sure you want to delete all past alerts?'),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text('Cancel'),
+                      ),
+                      TextButton(
+                        onPressed: () {
+                          Navigator.pop(context);
+                          _clearAlerts();
+                        },
+                        child: const Text('Clear All', style: TextStyle(color: Colors.red)),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
         ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : _error.isNotEmpty
-              ? Center(child: Text(_error, style: const TextStyle(color: Colors.red)))
-              : _alerts.isEmpty
-                  ? const Center(
-                      child: Text(
-                        'No alerts recorded yet.',
-                        style: TextStyle(color: Colors.grey, fontSize: 16),
+          : _alerts.isEmpty
+              ? const Center(
+                  child: Text(
+                    'No past alerts found.',
+                    style: TextStyle(color: Colors.grey, fontSize: 16),
+                  ),
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.all(16.0),
+                  itemCount: _alerts.length,
+                  itemBuilder: (context, index) {
+                    final alert = _alerts[index];
+                    return Card(
+                      elevation: 2,
+                      margin: const EdgeInsets.only(bottom: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
                       ),
-                    )
-                  : ListView.builder(
-                      padding: const EdgeInsets.all(16.0),
-                      itemCount: _alerts.length,
-                      itemBuilder: (context, index) {
-                        final alert = _alerts[index];
-                        final isCmd = alert['type'] == 'CMD';
-                        final color = isCmd ? Colors.orange : Colors.red;
-                        final unit = isCmd ? 'kVA' : 'kW';
-                        
-                        return Card(
-                          margin: const EdgeInsets.only(bottom: 12),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            side: BorderSide(color: color.withOpacity(0.3)),
+                      child: ListTile(
+                        leading: Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: Colors.red.withOpacity(0.1),
+                            shape: BoxShape.circle,
                           ),
-                          elevation: 1,
-                          child: ListTile(
-                            contentPadding: const EdgeInsets.all(16),
-                            leading: CircleAvatar(
-                              backgroundColor: color.withOpacity(0.1),
-                              child: Icon(Icons.warning_amber_rounded, color: color),
+                          child: const Icon(Icons.warning_amber_rounded, color: Colors.red),
+                        ),
+                        title: Text(
+                          alert['message'] ?? 'Alert Triggered',
+                          style: GoogleFonts.inter(fontWeight: FontWeight.w600),
+                        ),
+                        subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const SizedBox(height: 4),
+                            Text(
+                              _formatTimestamp(alert['timestamp']),
+                              style: GoogleFonts.inter(color: Colors.grey[600], fontSize: 12),
                             ),
-                            title: Text(
-                              alert['message'] ?? 'Alert Triggered',
-                              style: const TextStyle(fontWeight: FontWeight.bold),
-                            ),
-                            subtitle: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const SizedBox(height: 8),
-                                Text(
-                                  'Value: ${alert['value']} $unit (Limit: ${alert['limit']} $unit)',
-                                  style: TextStyle(color: Colors.grey.shade800),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  _formatDateTime(alert['timestamp'] ?? ''),
-                                  style: const TextStyle(fontSize: 12, color: Colors.grey),
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
-                      },
-                    ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
     );
   }
 }
