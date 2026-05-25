@@ -6,7 +6,7 @@ class SyncService {
   Function()? onAlertStopped;
 
   void init() {
-    socket = IO.io('http://192.168.1.11:5555', IO.OptionBuilder()
+    socket = IO.io('http://13.233.76.8:5555', IO.OptionBuilder()
       .setTransports(['websocket']) // for Flutter or Web
       .disableAutoConnect()  // disable auto-connection
       .build()
